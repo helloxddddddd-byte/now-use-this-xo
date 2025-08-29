@@ -6,6 +6,7 @@ import os
 from discord.ext import commands, tasks
 import discord
 discord.opus = None
+discord.voice = None
 import random
 import requests
 import asyncio
@@ -82,7 +83,7 @@ class MilestoneBot:
         intents.message_content = True
 
         # Bot
-        self.bot = commands.Bot(command_prefix='!', intents=intents)
+        self.bot = commands.Bot(command_prefix='!', intents=intents, voice_client_class=None)
 
         self.target_channel: discord.TextChannel | None = None
         self.is_running = False
