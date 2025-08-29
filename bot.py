@@ -1,10 +1,27 @@
 import sys
 print(">>> PYTHON VERSION:", sys.version)
+
+# Disable voice functionality BEFORE importing discord to prevent audioop import
+import os
+os.environ['DISCORD_NO_VOICE'] = '1'
+
+# Monkey patch to completely disable voice imports
+import sys
+class VoiceModulePatch:
+    def __getattr__(self, name):
+        return None
+
+# Block problematic modules before discord imports them
+sys.modules['audioop'] = VoiceModulePatch()
+sys.modules['discord.voice_client'] = VoiceModulePatch()
+sys.modules['discord.player'] = VoiceModulePatch()
+
 from flask import Flask
 from threading import Thread
-import os
 from discord.ext import commands, tasks
 import discord
+
+# Additional voice disabling
 discord.opus = None
 discord.voice = None
 import random
