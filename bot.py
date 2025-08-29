@@ -32,7 +32,7 @@ def keep_alive():
 
 # === Global rate limiter ===
 _last_request = 0
-_rate_limit = 2.0  # seconds between requests (more conservative for Render)
+_rate_limit = 5.0  # Much more conservative for production (5 seconds between requests)
 _request_count = 0
 _rate_reset_time = 0
 
@@ -42,23 +42,24 @@ def limited_request(session, url, **kwargs):
     
     current_time = time.time()
     
-    # Reset counter every minute
-    if current_time - _rate_reset_time > 60:
+    # Reset counter every 5 minutes (more conservative)
+    if current_time - _rate_reset_time > 300:
         _request_count = 0
         _rate_reset_time = current_time
     
-    # Limit to 20 requests per minute (more conservative for Render)
-    if _request_count >= 20:
-        sleep_time = 60 - (current_time - _rate_reset_time)
+    # Limit to 10 requests per 5 minutes (very conservative for production)
+    if _request_count >= 10:
+        sleep_time = 300 - (current_time - _rate_reset_time)
         if sleep_time > 0:
+            logging.info(f"Hit request limit, sleeping for {sleep_time:.1f}s")
             time.sleep(sleep_time)
             _request_count = 0
             _rate_reset_time = time.time()
     
-    # Standard rate limiting
+    # Standard rate limiting with jitter
     elapsed = current_time - _last_request
     if elapsed < _rate_limit:
-        sleep_for = _rate_limit - elapsed
+        sleep_for = _rate_limit - elapsed + random.uniform(0.5, 1.5)  # Add jitter
         time.sleep(sleep_for)
     
     try:
@@ -97,8 +98,8 @@ class MilestoneBot:
         self.bot.add_listener(self.on_ready)
         self.setup_commands()
 
-        # background loop - increased to 180 seconds for Render stability
-        self.milestone_loop = tasks.loop(seconds=180)(self._milestone_loop_body)
+        # background loop - increased to 300 seconds (5 minutes) for production stability
+        self.milestone_loop = tasks.loop(seconds=300)(self._milestone_loop_body)
 
         # Requests session
         self._http = requests.Session()
@@ -324,7 +325,12 @@ class MilestoneBot:
             # Don't stop the bot for temporary errors
 
     async def _milestone_loop_body(self):
-        await asyncio.sleep(random.uniform(0.5, 2.0))  # Add more jitter
+        # Add longer jitter for production environments
+        is_production = os.getenv("RENDER") or os.getenv("PORT", "8080") != "8080"
+        if is_production:
+            await asyncio.sleep(random.uniform(5.0, 15.0))  # Much longer jitter for production
+        else:
+            await asyncio.sleep(random.uniform(0.5, 2.0))  # Normal jitter for development
         await self.send_milestone_update()
 
     def run(self):
