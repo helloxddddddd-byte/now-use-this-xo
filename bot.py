@@ -9,7 +9,7 @@ import aiohttp
 from threading import Thread
 from flask import Flask
 
-# Configure logging
+# Configure logging first
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 print(f"Python version: {sys.version}")
 
 # Environment setup for Render
-PORT = int(os.environ.get("PORT", 5000))  # Use port 5000 for compatibility
+PORT = int(os.environ.get("PORT", 5000))
 DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN")
 
 if not DISCORD_TOKEN:
@@ -46,7 +46,7 @@ def keep_alive():
     flask_thread.start()
     return flask_thread
 
-# Import discord after Flask setup
+# Import discord AFTER Flask setup
 try:
     import discord
     from discord.ext import commands
@@ -56,8 +56,10 @@ except ImportError as e:
     sys.exit(1)
 
 class RobloxAPI:
-    # Define your RobloxAPI methods here as they are, maintaining functionality
-    # The code remains unchanged as it has been tailored for tracking already
+    # Your RobloxAPI methods go here, ensuring they are properly indented.
+    # Placeholder for methods
+    def get_game_data(self, place_id: str) -> tuple[int, int]:
+        pass
 
 class MilestoneBot:
     def __init__(self):
@@ -73,7 +75,7 @@ class MilestoneBot:
 
         # Discord intents (minimal)
         intents = discord.Intents.default()
-        intents.message_content = True  # Allow sending messages
+        intents.message_content = True
         intents.voice_states = False  # Explicitly disable voice
 
         # Create bot
@@ -86,6 +88,8 @@ class MilestoneBot:
         # Setup events and commands
         self.setup_events()
         self.setup_commands()
+
+        # Background task
         self.milestone_task = None
 
     def setup_events(self):
@@ -208,8 +212,10 @@ def main():
     """Main entry point"""
     # Start Flask keep-alive server
     keep_alive()
+
     # Wait a moment for Flask to start
     time.sleep(2)
+
     # Create and run bot
     bot = MilestoneBot()
     logger.info("Starting Discord bot...")
