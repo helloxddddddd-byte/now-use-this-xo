@@ -1,84 +1,88 @@
+
 import sys
 print(">>> PYTHON VERSION:", sys.version)
 
-# Disable voice functionality BEFORE importing discord to prevent audioop import
+# EXTREME measures to prevent voice imports - patch sys.modules IMMEDIATELY
+import types
+
+# Create comprehensive mocks for ALL voice-related modules
+class UniversalMock:
+    def __init__(self, name="UniversalMock"):
+        self._name = name
+        # Add ALL possible attributes that discord.py might look for
+        self.warn_nacl = False
+        self.opus = None
+        self.AudioPlayer = lambda *a, **k: None
+        self.AudioSource = lambda *a, **k: None
+        self.VoiceClient = lambda *a, **k: None
+        self.VoiceProtocol = lambda *a, **k: None
+        self.__all__ = []
+        
+    def __getattr__(self, name):
+        # Return another mock for any attribute access
+        return UniversalMock(f"{self._name}.{name}")
+    
+    def __call__(self, *args, **kwargs):
+        return UniversalMock(f"{self._name}()")
+
+# Install mocks for EVERYTHING voice-related BEFORE any imports
+voice_modules = [
+    'audioop',
+    'discord.player', 
+    'discord.voice_client',
+    'discord.voice',
+    'discord.opus',
+    'nacl',
+    'nacl.secret',
+    'PyNaCl',
+    'sodium'
+]
+
+for module in voice_modules:
+    sys.modules[module] = UniversalMock(module)
+
+# Monkey patch the import system to block voice imports
+original_import = __builtins__.__import__
+
+def patched_import(name, *args, **kwargs):
+    voice_keywords = ['audioop', 'voice', 'opus', 'nacl', 'sodium', 'player']
+    if any(keyword in name.lower() for keyword in voice_keywords):
+        return UniversalMock(name)
+    return original_import(name, *args, **kwargs)
+
+__builtins__.__import__ = patched_import
+
+# Environment variables to disable voice
 import os
 os.environ['DISCORD_NO_VOICE'] = '1'
+os.environ['DISCORD_DISABLE_VOICE'] = '1'
 
-# Create mock modules to prevent voice-related imports
-import sys
-import types
-
-# Mock audioop module
-class MockAudioop:
-    def __getattr__(self, name):
-        def mock_func(*args, **kwargs):
-            return None
-        return mock_func
-
-# Mock player module with proper __all__ support
-class MockPlayer:
-    __all__ = []  # Empty list to prevent import errors
-    
-    def __getattr__(self, name):
-        class MockClass:
-            def __init__(self, *args, **kwargs):
-                pass
-            def __getattr__(self, attr):
-                return lambda *a, **kw: None
-        return MockClass
-
-# Mock voice client module
-class MockVoiceClient:
-    __all__ = []
-    
-    def __getattr__(self, name):
-        class MockClass:
-            # Add specific attributes that discord.py looks for
-            warn_nacl = False
-            
-            def __init__(self, *args, **kwargs):
-                pass
-            def __getattr__(self, attr):
-                return lambda *a, **kw: None
-        return MockClass
-
-# Create a specific VoiceClient mock with all necessary attributes
-class MockVoiceClientClass:
-    warn_nacl = False
-    
-    def __init__(self, *args, **kwargs):
-        pass
-    
-    def __getattr__(self, attr):
-        return lambda *a, **kw: None
-
-# Install mocks before discord imports
-sys.modules['audioop'] = MockAudioop()
-sys.modules['discord.player'] = MockPlayer()
-sys.modules['discord.voice_client'] = MockVoiceClient()
-
-# Also create a global VoiceClient mock that discord can import
-import types
-voice_client_module = types.ModuleType('discord.voice_client')
-voice_client_module.VoiceClient = MockVoiceClientClass
-voice_client_module.VoiceProtocol = MockVoiceClientClass
-sys.modules['discord.voice_client'] = voice_client_module
-
+# Now safe to import everything else
 from flask import Flask
 from threading import Thread
-from discord.ext import commands, tasks
-import discord
-
-# Additional voice disabling
-discord.opus = None
-discord.voice = None
 import random
 import requests
 import asyncio
 import logging
 import time
 import aiohttp
+
+# Patch discord after import to remove voice functionality
+try:
+    from discord.ext import commands, tasks
+    import discord
+    
+    # Aggressively disable voice after import
+    discord.opus = None
+    discord.voice = None
+    if hasattr(discord, 'VoiceClient'):
+        discord.VoiceClient = None
+    if hasattr(discord, 'VoiceProtocol'):
+        discord.VoiceProtocol = None
+        
+except ImportError as e:
+    print(f"Discord import failed: {e}")
+    sys.exit(1)
 
 # === Keep-alive server ===
 app = Flask(__name__)
@@ -98,7 +102,7 @@ def keep_alive():
 
 # === Global rate limiter ===
 _last_request = 0
-_rate_limit = 5.0  # Much more conservative for production (5 seconds between requests)
+_rate_limit = 5.0
 _request_count = 0
 _rate_reset_time = 0
 
@@ -108,12 +112,12 @@ def limited_request(session, url, **kwargs):
     
     current_time = time.time()
     
-    # Reset counter every 5 minutes (more conservative)
+    # Reset counter every 5 minutes
     if current_time - _rate_reset_time > 300:
         _request_count = 0
         _rate_reset_time = current_time
     
-    # Limit to 10 requests per 5 minutes (very conservative for production)
+    # Limit to 10 requests per 5 minutes
     if _request_count >= 10:
         sleep_time = 300 - (current_time - _rate_reset_time)
         if sleep_time > 0:
@@ -125,7 +129,7 @@ def limited_request(session, url, **kwargs):
     # Standard rate limiting with jitter
     elapsed = current_time - _last_request
     if elapsed < _rate_limit:
-        sleep_for = _rate_limit - elapsed + random.uniform(0.5, 1.5)  # Add jitter
+        sleep_for = _rate_limit - elapsed + random.uniform(0.5, 1.5)
         time.sleep(sleep_for)
     
     try:
@@ -143,14 +147,20 @@ class MilestoneBot:
         self.token = token
         self.place_id = str(place_id)
 
-        # Intents
+        # Intents - minimal set
         intents = discord.Intents.none()
         intents.guilds = True
         intents.messages = True
         intents.message_content = True
 
-        # Bot
-        self.bot = commands.Bot(command_prefix='!', intents=intents, voice_client_class=None)
+        # Bot with NO voice support
+        self.bot = commands.Bot(
+            command_prefix='!', 
+            intents=intents,
+            # Explicitly disable ALL voice functionality
+            voice_client_class=None,
+            enable_debug_events=False
+        )
 
         self.target_channel: discord.TextChannel | None = None
         self.is_running = False
@@ -164,14 +174,14 @@ class MilestoneBot:
         self.bot.add_listener(self.on_ready)
         self.setup_commands()
 
-        # background loop - increased to 300 seconds (5 minutes) for production stability
+        # background loop - 5 minutes for production stability
         self.milestone_loop = tasks.loop(seconds=300)(self._milestone_loop_body)
 
         # Requests session
         self._http = requests.Session()
         self._http.headers.update({"User-Agent": "Mozilla/5.0 (MilestoneBot)"})
 
-        # aiohttp session (will be created in on_ready)
+        # aiohttp session
         self._aiohttp = None
 
         self.bot.add_listener(self.on_close)
@@ -179,7 +189,7 @@ class MilestoneBot:
     async def on_ready(self):
         logging.info(f'Bot logged in as {self.bot.user}')
         
-        # Create aiohttp session now that event loop is running
+        # Create aiohttp session
         if self._aiohttp is None:
             connector = aiohttp.TCPConnector()
             self._aiohttp = aiohttp.ClientSession(connector=connector)
@@ -264,7 +274,7 @@ class MilestoneBot:
                 )
                 
                 if universe_resp.status_code == 429:
-                    wait_time = 60 * (2 ** attempt)  # Exponential backoff
+                    wait_time = 60 * (2 ** attempt)
                     logging.warning(f"Rate limited, waiting {wait_time}s before retry {attempt + 1}/{max_retries}")
                     time.sleep(wait_time)
                     continue
@@ -299,7 +309,7 @@ class MilestoneBot:
 
                 self.current_visits = max(self.current_visits, visits)
 
-                # Step 3: Get servers (limit to 3 pages to avoid rate limits)
+                # Step 3: Get servers (limit to 3 pages)
                 cursor = ""
                 pages_fetched = 0
                 max_pages = 3
@@ -315,7 +325,7 @@ class MilestoneBot:
                         wait_time = 60 * (2 ** attempt)
                         logging.warning(f"Rate limited on servers, waiting {wait_time}s")
                         time.sleep(wait_time)
-                        break  # Skip server counting for this attempt
+                        break
                         
                     server_resp.raise_for_status()
                     server_data = server_resp.json()
@@ -346,10 +356,10 @@ class MilestoneBot:
             except Exception as e:
                 logging.error(f"Error fetching game data (attempt {attempt + 1}): {e}")
                 if attempt < max_retries - 1:
-                    time.sleep(5 * (attempt + 1))  # Progressive delay
+                    time.sleep(5 * (attempt + 1))
                     continue
             
-        # Fallback data if all attempts fail
+        # Fallback data
         logging.warning("Using fallback data due to API failures")
         return random.randint(8, 30), max(3258, self.current_visits)
 
@@ -372,7 +382,6 @@ class MilestoneBot:
                 "--------------------------------------------------"
             )
             
-            # Check if channel still exists and bot has permissions
             if self.target_channel.guild and self.target_channel.guild.get_channel(self.target_channel.id):
                 await self.target_channel.send(message)
             else:
@@ -388,15 +397,13 @@ class MilestoneBot:
                 self.milestone_loop.cancel()
         except Exception as e:
             logging.error(f"Failed to send milestone update: {e}")
-            # Don't stop the bot for temporary errors
 
     async def _milestone_loop_body(self):
-        # Add longer jitter for production environments
         is_production = os.getenv("RENDER") or os.getenv("PORT", "8080") != "8080"
         if is_production:
-            await asyncio.sleep(random.uniform(5.0, 15.0))  # Much longer jitter for production
+            await asyncio.sleep(random.uniform(5.0, 15.0))
         else:
-            await asyncio.sleep(random.uniform(0.5, 2.0))  # Normal jitter for development
+            await asyncio.sleep(random.uniform(0.5, 2.0))
         await self.send_milestone_update()
 
     def run(self):
@@ -407,19 +414,15 @@ class MilestoneBot:
         except Exception as e:
             logging.error(f"Bot crashed: {e}")
         finally:
-            # Clean up aiohttp session properly
             try:
                 if self._aiohttp and not self._aiohttp.closed:
-                    # Get the event loop or create a new one
                     try:
                         loop = asyncio.get_event_loop()
                         if loop.is_running():
-                            # Create a task to close the session
                             loop.create_task(self._aiohttp.close())
                         else:
                             loop.run_until_complete(self._aiohttp.close())
                     except RuntimeError:
-                        # If no event loop, create a new one
                         asyncio.run(self._aiohttp.close())
             except Exception as cleanup_error:
                 logging.error(f"Error during cleanup: {cleanup_error}")
