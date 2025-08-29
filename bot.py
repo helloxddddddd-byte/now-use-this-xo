@@ -5,16 +5,45 @@ print(">>> PYTHON VERSION:", sys.version)
 import os
 os.environ['DISCORD_NO_VOICE'] = '1'
 
-# Monkey patch to completely disable voice imports
+# Create mock modules to prevent voice-related imports
 import sys
-class VoiceModulePatch:
-    def __getattr__(self, name):
-        return None
+import types
 
-# Block problematic modules before discord imports them
-sys.modules['audioop'] = VoiceModulePatch()
-sys.modules['discord.voice_client'] = VoiceModulePatch()
-sys.modules['discord.player'] = VoiceModulePatch()
+# Mock audioop module
+class MockAudioop:
+    def __getattr__(self, name):
+        def mock_func(*args, **kwargs):
+            return None
+        return mock_func
+
+# Mock player module with proper __all__ support
+class MockPlayer:
+    __all__ = []  # Empty list to prevent import errors
+    
+    def __getattr__(self, name):
+        class MockClass:
+            def __init__(self, *args, **kwargs):
+                pass
+            def __getattr__(self, attr):
+                return lambda *a, **kw: None
+        return MockClass
+
+# Mock voice client module
+class MockVoiceClient:
+    __all__ = []
+    
+    def __getattr__(self, name):
+        class MockClass:
+            def __init__(self, *args, **kwargs):
+                pass
+            def __getattr__(self, attr):
+                return lambda *a, **kw: None
+        return MockClass
+
+# Install mocks before discord imports
+sys.modules['audioop'] = MockAudioop()
+sys.modules['discord.player'] = MockPlayer()
+sys.modules['discord.voice_client'] = MockVoiceClient()
 
 from flask import Flask
 from threading import Thread
