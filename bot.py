@@ -34,16 +34,36 @@ class MockVoiceClient:
     
     def __getattr__(self, name):
         class MockClass:
+            # Add specific attributes that discord.py looks for
+            warn_nacl = False
+            
             def __init__(self, *args, **kwargs):
                 pass
             def __getattr__(self, attr):
                 return lambda *a, **kw: None
         return MockClass
 
+# Create a specific VoiceClient mock with all necessary attributes
+class MockVoiceClientClass:
+    warn_nacl = False
+    
+    def __init__(self, *args, **kwargs):
+        pass
+    
+    def __getattr__(self, attr):
+        return lambda *a, **kw: None
+
 # Install mocks before discord imports
 sys.modules['audioop'] = MockAudioop()
 sys.modules['discord.player'] = MockPlayer()
 sys.modules['discord.voice_client'] = MockVoiceClient()
+
+# Also create a global VoiceClient mock that discord can import
+import types
+voice_client_module = types.ModuleType('discord.voice_client')
+voice_client_module.VoiceClient = MockVoiceClientClass
+voice_client_module.VoiceProtocol = MockVoiceClientClass
+sys.modules['discord.voice_client'] = voice_client_module
 
 from flask import Flask
 from threading import Thread
